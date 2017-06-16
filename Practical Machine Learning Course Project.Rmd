@@ -1,0 +1,138 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "yhyim"
+date: "2017년 6월 16일"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Introduction
+
+
+### Background
+Using devices such as *Jawbone Up, Nike FuelBand*, and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify *how well they do* it.
+
+### Data
+
+The training data for this project are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+The data for this project come from this source: <http://groupware.les.inf.puc-rio.br/har>. 
+
+
+### Goal
+The goal of this project is to predict the manner in which they did the exercise. This is the **classe** variable in the training set. To build model, we used cross validation, examined the expected out of sample error. Finally we used prediction model to predict 20 different test cases.
+
+```{r}
+# Load related packages
+library(lattice)
+library(ggplot2)
+library(caret)
+library(randomForest)
+```
+
+## 2. Getting and Cleaning Data
+
+```{r}
+# Read data
+training  <- read.csv("pml-training.csv", header = TRUE, na.strings = c("NA", "", "#DIV/0!"))
+testing  <- read.csv("pml-testing.csv", header = TRUE, na.strings = c("NA", "", "#DIV/0!"))
+
+```
+
+To estimate the out-of-sample error, I randomly split the full training data (training) into a smaller training set (subTraining) and a validation set (valTraining):
+```{r}
+set.seed(1000)
+inTrain <- createDataPartition(y = training$classe, p = 0.7, list = FALSE)
+subTraining <- training[inTrain,]
+valTraining <- training[-inTrain,]
+```
+
+Reducing the number of features by removing variables with nearly zero variance, variables that are almost always NA, and variables that don’t make intuitive sense for prediction. 
+```{r}
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(subTraining)
+subTraining <- subTraining[, -nzv]
+valTraining <- valTraining[, -nzv]
+
+# remove variables that are almost always NA
+mostlyNA <- sapply(subTraining, function(x) mean(is.na(x))) > 0.95
+subTraining <- subTraining[, mostlyNA == FALSE]
+valTraining <- valTraining[, mostlyNA == FALSE]
+
+# remove variables that don't make intuitive sense for prediction, which happen to be the first five variables 
+# (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp)
+subTraining <- subTraining[, -(1:5)]
+valTraining <- valTraining[, -(1:5)]
+```
+
+## 3. Building Model and evaluation
+
+```{r}
+# Use Random Forest to build model
+fit <- randomForest(classe ~ ., data=subTraining)
+
+# print final model to see tuning parameters
+fit
+
+# use model to predict classe in validation set (valTraining)
+preds <- predict(fit, valTraining, type = "class")
+
+# show confusion matrix to get estimate of out-of-sample error
+confusionMatrix(valTraining$classe, preds)
+```
+
+`The accuracy is 99.7%`, thus predicted accuracy for the `out-of-sample error is 0.3%`.
+
+This is a good result, so rather than trying additional algorithms, We will use Random Forests to predict on the test set.
+
+
+## 4. Training with selected model
+Before predicting on the test set, in order to produce the most accurate predictions, We repeated emoving variables with nearly zero variance on `training` and `testing` data
+```{r}
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(training)
+training <- training[, -nzv]
+testing <- testing[, -nzv]
+
+
+# remove variables that are almost always NA
+mostlyNA <- sapply(training, function(x) mean(is.na(x))) > 0.95
+training <- training[, mostlyNA == FALSE]
+testing <- testing[, mostlyNA == FALSE]
+
+# remove variables that don't make intuitive sense for prediction, which happen to be the first five variables 
+# (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp)
+training <- training[, -(1:5)]
+testing <- testing[, -(1:5)]
+
+fit <- randomForest(classe ~ ., data=training)
+```
+
+## 5. Predicting Results on the Test Data
+
+Finally, Using the model fit on `training` to predict the label for the observations in `testing`, and write those predictions to individual files
+```{r}
+
+final_predict <- predict(fit, testing, type = "class")
+```
+
+
+```{r}
+pml_write_files = function(x) {
+  for (i in 1:length(x)) {
+    filename = paste0("problem_id_", i, ".txt")
+    write.table(x[i], file=filename, quote=FALSE,row.names=FALSE, col.names=FALSE)
+  }
+}
+
+pml_write_files(final_predict)
+```
